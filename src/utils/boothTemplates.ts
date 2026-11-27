@@ -68,6 +68,16 @@ export const BOOTH_TEMPLATES: BoothTemplate[] = [
       ],
     ],
   },
+  {
+    id: "Tmp4_isi3",
+    name: "Vanilla Creamy",
+    image: "./templates/Tmp4_isi3.png",
+    slots: [
+      rectangle(0.13, 0.11, 0.875, 0.325),
+      rectangle(0.13, 0.357, 0.875, 0.618),
+      rectangle(0.13, 0.641, 0.875, 0.886),
+    ],
+  },
 ];
 
 export function getBoothTemplate(id: string) {
