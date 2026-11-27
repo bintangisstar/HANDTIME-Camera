@@ -1,75 +1,59 @@
-# React + TypeScript + Vite
+# ✋ HANDTIME Camera
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Timer foto otomatis berbasis gesture tangan. Tunjukkan sejumlah jari ke kamera,
+HANDTIME akan membaca jumlahnya, menjalankan hitung mundur selama jumlah jari
+tersebut, lalu mengambil foto secara otomatis.
 
-Currently, two official plugins are available:
+Dibangun dengan **React 19 + TypeScript + Vite 8 + MediaPipe Tasks Vision**.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## ✨ Fitur
 
-## React Compiler
+| Fitur | Keterangan |
+|-------|-----------|
+| 🖐️ **Deteksi jari** | Hand landmark MediaPipe, maksimal 1 tangan |
+| ⏱️ **Timer dari gesture** | Tahan gesture 0,5 detik → timer mulai sesuai jumlah jari |
+| 📸 **Foto otomatis** | Foto diambil begitu hitung mundur selesai (hasil mirror) |
+| 🖼️ **Preview & simpan** | Pratinjau hasil, tombol RETAKE dan SAVE PHOTO |
+| 📦 **Build satu file** | `dist/index.html` mandiri, semua JS/CSS sudah inline |
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## 🚀 Menjalankan
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+Buka `http://localhost:5173`, lalu izinkan akses kamera.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## 📦 Build satu file mandiri
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run build
+```
 
+Hasilnya **satu file**: `dist/index.html` (JavaScript dan CSS di-inline lewat
+`vite-plugin-singlefile`). File itu bisa langsung dibuka di browser atau
+di-upload ke hosting statis apa pun tanpa folder `assets`.
+
+> Build juga bisa dijalankan lewat `npm run preview` untuk mengecek hasilnya.
+
+## 📝 Catatan
+
+- Kamera hanya aktif di `localhost` atau HTTPS (kebijakan browser).
+- MediaPipe (WASM + model `hand_landmarker.task`) dimuat dari CDN, jadi
+  koneksi internet tetap diperlukan saat aplikasi dibuka.
+- Deteksi memakai delegate GPU; browser tanpa dukungan WebGL bisa gagal
+  menginisialisasi hand landmarker.
+
+## 🗂️ Struktur
+
+```
+src/
+├── components/
+│   ├── CameraView.tsx    # kamera, deteksi tangan, capture
+│   └── TimerDisplay.tsx  # tampilan hitung mundur
+├── hooks/useGestureTimer.ts
+├── utils/fingerCounter.ts
+├── App.tsx
+└── main.tsx
 ```
