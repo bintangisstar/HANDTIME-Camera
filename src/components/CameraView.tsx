@@ -1,312 +1,587 @@
-import { useGestureTimer } from "../hooks/useGestureTimer";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   FilesetResolver,
   HandLandmarker,
+  type NormalizedLandmark,
 } from "@mediapipe/tasks-vision";
+import {
+  Camera,
+  HandWaving,
+  LightbulbFilament,
+  WarningCircle,
+} from "@phosphor-icons/react";
 
-import { countFingers } from "../utils/fingerCounter";
-import TimerDisplay from "./TimerDisplay";
+import { useGestureTimer } from "../hooks/useGestureTimer";
+import { readHand, smoothCount } from "../utils/fingerCounter";
+import type { FingerState } from "../utils/fingerCounter";
+import CountdownOverlay from "./CountdownOverlay";
+import GestureGuide from "./GestureGuide";
+import PhotoResult from "./PhotoResult";
+import PoseCard from "./PoseCard";
 
-export default function CameraView() {
+const WASM_URL =
+  "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.2.3/wasm";
+const MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
+
+const HOLD_MS = 600;
+const HISTORY_SIZE = 5;
+
+const EMPTY_FINGERS: FingerState = [false, false, false, false, false];
+
+type CameraPhase = "loading" | "ready" | "error";
+
+type CameraViewProps = {
+  sound: {
+    playTick: () => void;
+    playGo: () => void;
+    playShutter: () => void;
+  };
+};
+
+function drawLandmarks(
+  ctx: CanvasRenderingContext2D,
+  landmarks: NormalizedLandmark[],
+  width: number,
+  height: number
+) {
+  const radius = Math.max(4, width / 165);
+
+  for (const point of landmarks) {
+    const x = point.x * width;
+    const y = point.y * height;
+
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffd166";
+    ctx.fill();
+
+    ctx.lineWidth = Math.max(1.5, radius * 0.42);
+    ctx.strokeStyle = "#241726";
+    ctx.stroke();
+  }
+}
+
+export default function CameraView({ sound }: CameraViewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const landmarkerRef = useRef<HandLandmarker | null>(null);
+  const holdBarRef = useRef<HTMLDivElement>(null);
+
+  const { playTick, playGo, playShutter } = sound;
+
+  const [phase, setPhase] = useState<CameraPhase>("loading");
+  const [loadStep, setLoadStep] = useState("Memuat pendeteksi tangan…");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [retryKey, setRetryKey] = useState(0);
 
   const [fingerCount, setFingerCount] = useState(0);
-  const [cameraActive, setCameraActive] = useState(false);
+  const [fingers, setFingers] = useState<FingerState>(EMPTY_FINGERS);
+  const [holding, setHolding] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [flashKey, setFlashKey] = useState(0);
 
-  const {
-    status,
-    duration,
-    remaining,
-    startTimer,
-    resetTimer,
-  } = useGestureTimer();
+  const { status, duration, remaining, startTimer, resetTimer } =
+    useGestureTimer();
 
   const statusRef = useRef(status);
+  const capturedRef = useRef(false);
+  const candidateRef = useRef(0);
+  const holdStartRef = useRef(0);
+  const triggeredRef = useRef(false);
+  const historyRef = useRef<number[]>([]);
+  const lastTsRef = useRef(0);
 
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
 
-  const [stableGesture, setStableGesture] = useState(0);
-
-  const gestureCandidateRef = useRef(0);
-  const gestureStartRef = useRef(0);
-  const triggeredRef = useRef(false);
-  const capturedRef = useRef(false);
-
-  // TAKE PHOTO
-  const capturePhoto = () => {
-    const video = videoRef.current;
-
-    if (!video || video.videoWidth === 0) return;
-
-    const canvas = document.createElement("canvas");
-
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-
-    const ctx = canvas.getContext("2d");
-
-    if (!ctx) return;
-
-    // Mirror foto agar sesuai preview kamera
-    ctx.translate(canvas.width, 0);
-    ctx.scale(-1, 1);
-
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    const image = canvas.toDataURL("image/png");
-
-    setCapturedImage(image);
-    capturedRef.current = true;
-  };
-
-  // AUTO CAPTURE WHEN TIMER COMPLETED
   useEffect(() => {
-    if (status === "COMPLETED" && !capturedRef.current) {
-      capturePhoto();
+    if (status === "running" && remaining > 0) {
+      playTick();
     }
-  }, [status]);
+  }, [remaining, status, playTick]);
 
-  // RETAKE
-  const retakePhoto = () => {
-    setCapturedImage(null);
+  const retake = useCallback(() => {
     capturedRef.current = false;
-
+    statusRef.current = "idle";
     triggeredRef.current = false;
-    gestureCandidateRef.current = 0;
-    gestureStartRef.current = performance.now();
+    candidateRef.current = 0;
+    holdStartRef.current = performance.now();
+    historyRef.current = [];
 
+    setCapturedImage(null);
+    setFingerCount(0);
+    setFingers(EMPTY_FINGERS);
+    setHolding(false);
     resetTimer();
-  };
 
-  // SAVE PHOTO
-  const savePhoto = () => {
+    if (holdBarRef.current) {
+      holdBarRef.current.style.transform = "scaleX(0)";
+    }
+  }, [resetTimer]);
+
+  const savePhoto = useCallback(() => {
     if (!capturedImage) return;
 
+    const stamp = new Date()
+      .toISOString()
+      .slice(0, 19)
+      .replace(/[:T]/g, "-");
+
     const link = document.createElement("a");
-
     link.href = capturedImage;
-    link.download = `handtime-${Date.now()}.png`;
-
+    link.download = `handtime-${stamp}.jpg`;
+    document.body.appendChild(link);
     link.click();
-  };
+    link.remove();
+  }, [capturedImage]);
 
-  // CAMERA & HAND DETECTION
+  const retry = useCallback(() => {
+    setErrorMessage("");
+    setPhase("loading");
+    setLoadStep("Memuat pendeteksi tangan…");
+    setRetryKey((key) => key + 1);
+  }, []);
+
+  // Camera stream + MediaPipe hand landmarker.
   useEffect(() => {
-    let animationId: number;
-    let stream: MediaStream;
     let disposed = false;
+    let stream: MediaStream | null = null;
+    let rafId = 0;
+    let landmarker: HandLandmarker | null = null;
 
-    async function setup() {
-      const vision = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
-      );
-
+    const fail = (message: string) => {
       if (disposed) return;
+      setErrorMessage(message);
+      setPhase("error");
+    };
 
-      landmarkerRef.current = await HandLandmarker.createFromOptions(
-        vision,
-        {
-          baseOptions: {
-            modelAssetPath:
-              "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
-            delegate: "GPU",
-          },
-          runningMode: "VIDEO",
-          numHands: 1,
+    const describeError = (error: unknown) => {
+      if (
+        error instanceof Error &&
+        error.message === "MediaDevicesUnavailable"
+      ) {
+        return "Kamera cuma bisa dipakai lewat HTTPS atau localhost. Buka alamat itu lalu coba lagi.";
+      }
+
+      const name = error instanceof DOMException ? error.name : "";
+
+      switch (name) {
+        case "NotAllowedError":
+        case "SecurityError":
+          return "Izin kamera ditolak. Izinkan akses kamera untuk situs ini, lalu tekan coba lagi.";
+        case "NotFoundError":
+        case "OverconstrainedError":
+          return "Tidak ada kamera yang bisa dipakai. Pasang kamera atau coba browser lain.";
+        case "NotReadableError":
+        case "AbortError":
+          return "Kamera sedang dipakai aplikasi lain. Tutup aplikasi itu, lalu coba lagi.";
+        default:
+          return "Kamera atau pendeteksi tangan gagal dimuat. Periksa koneksi internet, lalu coba lagi.";
+      }
+    };
+
+    const resetHoldBar = () => {
+      if (holdBarRef.current) {
+        holdBarRef.current.style.transform = "scaleX(0)";
+      }
+    };
+
+    const grabPhoto = () => {
+      if (capturedRef.current) return;
+
+      const video = videoRef.current;
+      if (!video || video.videoWidth === 0 || video.videoHeight === 0) return;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      // Mirror the frame so the saved photo matches the preview.
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      capturedRef.current = true;
+      setCapturedImage(canvas.toDataURL("image/jpeg", 0.92));
+      setFlashKey((key) => key + 1);
+      playShutter();
+    };
+
+    async function boot() {
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error("MediaDevicesUnavailable");
         }
-      );
 
-      if (disposed) {
-        landmarkerRef.current?.close();
-        landmarkerRef.current = null;
-        return;
-      }
+        setPhase("loading");
+        setLoadStep("Memuat pendeteksi tangan…");
 
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: 640,
-          height: 480,
-        },
-      });
-
-      if (disposed) {
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-
-        await videoRef.current.play();
-
+        const vision = await FilesetResolver.forVisionTasks(WASM_URL);
         if (disposed) return;
 
-        setCameraActive(true);
-      }
+        const baseOptions = {
+          modelAssetPath: MODEL_URL,
+          delegate: "GPU" as const,
+        };
+        const commonOptions = {
+          baseOptions,
+          runningMode: "VIDEO" as const,
+          numHands: 1,
+        };
 
-      detect();
+        try {
+          landmarker = await HandLandmarker.createFromOptions(
+            vision,
+            commonOptions
+          );
+        } catch {
+          // Machines without a usable WebGL delegate still work on CPU.
+          landmarker = await HandLandmarker.createFromOptions(vision, {
+            ...commonOptions,
+            baseOptions: { ...baseOptions, delegate: "CPU" as const },
+          });
+        }
+
+        if (disposed) {
+          landmarker.close();
+          return;
+        }
+        landmarkerRef.current = landmarker;
+
+        setLoadStep("Menyalakan kamera…");
+
+        stream = await navigator.mediaDevices
+          .getUserMedia({
+            audio: false,
+            video: {
+              facingMode: "user",
+              width: { ideal: 1280 },
+              height: { ideal: 960 },
+            },
+          })
+          .catch(() =>
+            // Some webcams reject the ideal size; retry with defaults.
+            navigator.mediaDevices.getUserMedia({ audio: false, video: true })
+          );
+
+        if (disposed) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        const video = videoRef.current;
+        if (!video) return;
+
+        video.srcObject = stream;
+        await video.play().catch(() => undefined);
+
+        if (disposed) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        setPhase("ready");
+        setLoadStep("");
+        detect();
+      } catch (error) {
+        console.error("HANDTIME init error:", error);
+        fail(describeError(error));
+      }
     }
 
     function detect() {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      const ctx = canvas?.getContext("2d");
+      if (disposed) return;
 
-      if (!video || !canvas || !ctx || !landmarkerRef.current) {
-        animationId = requestAnimationFrame(detect);
-        return;
+      // The timer writes its final state, and the next frame grabs the photo.
+      if (statusRef.current === "done" && !capturedRef.current) {
+        grabPhoto();
       }
 
-      if (video.readyState >= 2) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const tracker = landmarkerRef.current;
+      const ctx = canvas?.getContext("2d") ?? null;
 
-        const result = landmarkerRef.current.detectForVideo(
-          video,
-          performance.now()
-        );
+      if (
+        video &&
+        canvas &&
+        ctx &&
+        tracker &&
+        video.readyState >= 2 &&
+        !capturedRef.current
+      ) {
+        const width = video.videoWidth;
+        const height = video.videoHeight;
 
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        if (result.landmarks.length > 0) {
-          const landmarks = result.landmarks[0];
-
-          const fingers = countFingers(landmarks);
-
-          setFingerCount(fingers);
-
-          if (fingers !== gestureCandidateRef.current) {
-            gestureCandidateRef.current = fingers;
-            gestureStartRef.current = performance.now();
-            triggeredRef.current = false;
+        if (width > 0 && height > 0) {
+          if (canvas.width !== width || canvas.height !== height) {
+            canvas.width = width;
+            canvas.height = height;
           }
 
-          const elapsed =
-            performance.now() - gestureStartRef.current;
-
-          if (
-            fingers > 0 &&
-            elapsed >= 500 &&
-            !triggeredRef.current &&
-            statusRef.current !== "RUNNING" &&
-            statusRef.current !== "COMPLETED" &&
-            !capturedRef.current
-          ) {
-            triggeredRef.current = true;
-            setStableGesture(fingers);
-            startTimer(fingers);
-          }
-
-          // DRAW LANDMARKS
-          for (const point of landmarks) {
-            ctx.beginPath();
-
-            ctx.arc(
-              point.x * canvas.width,
-              point.y * canvas.height,
-              5,
-              0,
-              2 * Math.PI
+          try {
+            const timestamp = Math.max(
+              performance.now(),
+              lastTsRef.current + 1
             );
+            lastTsRef.current = timestamp;
 
-            ctx.fillStyle = "#B6F542";
-            ctx.fill();
+            const result = tracker.detectForVideo(video, timestamp);
+
+            ctx.clearRect(0, 0, width, height);
+
+            if (result.landmarks.length > 0) {
+              const landmarks = result.landmarks[0];
+              const reading = readHand(landmarks);
+
+              historyRef.current.push(reading.count);
+              if (historyRef.current.length > HISTORY_SIZE) {
+                historyRef.current.shift();
+              }
+              const stable = smoothCount(historyRef.current);
+
+              if (stable !== candidateRef.current) {
+                candidateRef.current = stable;
+                holdStartRef.current = performance.now();
+                triggeredRef.current = false;
+                setHolding(false);
+              }
+
+              setFingerCount((current) =>
+                current === stable ? current : stable
+              );
+              setFingers((current) =>
+                current.every((value, index) => value === reading.fingers[index])
+                  ? current
+                  : reading.fingers
+              );
+
+              drawLandmarks(ctx, landmarks, width, height);
+
+              if (
+                stable > 0 &&
+                statusRef.current !== "running" &&
+                statusRef.current !== "done"
+              ) {
+                const progress = Math.min(
+                  1,
+                  (performance.now() - holdStartRef.current) / HOLD_MS
+                );
+
+                if (holdBarRef.current) {
+                  holdBarRef.current.style.transform = `scaleX(${progress})`;
+                }
+
+                if (progress > 0.16) {
+                  setHolding(true);
+                }
+
+                if (progress >= 1 && !triggeredRef.current) {
+                  triggeredRef.current = true;
+                  if (startTimer(stable)) {
+                    playGo();
+                  }
+                }
+              } else {
+                resetHoldBar();
+              }
+            } else {
+              historyRef.current = [];
+
+              if (candidateRef.current !== 0) {
+                candidateRef.current = 0;
+                triggeredRef.current = false;
+                setFingerCount(0);
+                setFingers(EMPTY_FINGERS);
+                setHolding(false);
+              }
+
+              resetHoldBar();
+            }
+          } catch (error) {
+            // A single bad frame should never kill the loop.
+            console.warn("HANDTIME frame skipped:", error);
           }
-        } else {
-          setFingerCount(0);
-
-          gestureCandidateRef.current = 0;
-          gestureStartRef.current = performance.now();
-          triggeredRef.current = false;
         }
       }
 
-      animationId = requestAnimationFrame(detect);
+      rafId = requestAnimationFrame(detect);
     }
 
-    setup().catch((error) => {
-      if (!disposed) {
-        console.error("Camera error:", error);
-      }
-    });
+    void boot();
 
     return () => {
       disposed = true;
-
-      cancelAnimationFrame(animationId);
-
+      cancelAnimationFrame(rafId);
       stream?.getTracks().forEach((track) => track.stop());
-
       landmarkerRef.current?.close();
       landmarkerRef.current = null;
     };
-  }, []);
+  }, [retryKey, playGo, startTimer, playShutter]);
 
-  // UI
+  const locked =
+    phase !== "ready" || status === "running" || capturedImage !== null;
+
+  const statusTone =
+    phase === "error"
+      ? "is-error"
+      : phase === "loading"
+        ? "is-loading"
+        : status === "running"
+          ? "is-running"
+          : fingerCount > 0
+            ? "is-active"
+            : "is-ready";
+
+  const statusLabel =
+    phase === "error"
+      ? "Kamera mati"
+      : phase === "loading"
+        ? "Menyiapkan kamera…"
+        : status === "running"
+          ? `Hitung mundur ${remaining}…`
+          : capturedImage
+            ? "Foto siap!"
+            : fingerCount > 0
+              ? holding
+                ? `Tahan… ${fingerCount} jari`
+                : `${fingerCount} jari terbaca`
+              : "Siap. Tunjukkan jari";
+
+  const showHint =
+    phase === "ready" &&
+    status === "idle" &&
+    fingerCount === 0 &&
+    !capturedImage;
+
   return (
-    <div className="handtime-container">
-      <h1 className="handtime-title">HANDTIME</h1>
+    <>
+      <main className="booth">
+        <div className="booth-grid">
+          <section className="stage" aria-label="Kamera">
+            <div className="stage-frame" data-phase={phase}>
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                aria-hidden="true"
+                className="camera-video"
+              />
 
-      <div className="camera-wrapper">
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          className="camera-video"
-        />
+              <canvas
+                ref={canvasRef}
+                className="landmark-canvas"
+                aria-hidden="true"
+              />
 
-        <canvas
-          ref={canvasRef}
-          className="landmark-canvas"
-        />
+              <div className="viewfinder" aria-hidden="true" />
 
-        {!cameraActive && (
-          <div className="camera-loading">
-            INITIALIZING CAMERA...
-          </div>
-        )}
-      </div>
+              {phase === "ready" && (
+                <span className="rec-chip" aria-hidden="true">
+                  <span className="rec-dot" />
+                  live
+                </span>
+              )}
 
-      <div className="finger-counter">
-        FINGER COUNT: <span>{fingerCount}</span>
-      </div>
+              {showHint && (
+                <div className="stage-tip">
+                  <HandWaving size={18} weight="fill" aria-hidden="true" />
+                  Tunjukkan 1–5 jari
+                </div>
+              )}
 
-      <TimerDisplay
-        status={status}
-        duration={duration}
-        remaining={remaining}
-        gesture={stableGesture}
-        onReset={retakePhoto}
-      />
+              {phase === "loading" && (
+                <div className="stage-overlay">
+                  <div className="status-card">
+                    <span className="status-icon">
+                      <HandWaving size={34} weight="fill" aria-hidden="true" />
+                    </span>
+                    <h2>Menyiapkan kamera</h2>
+                    <p>{loadStep || "Sebentar ya…"}</p>
+                    <span className="load-dots" aria-hidden="true">
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {phase === "error" && (
+                <div className="stage-overlay">
+                  <div className="status-card">
+                    <span className="status-icon is-error">
+                      <WarningCircle size={34} weight="fill" aria-hidden="true" />
+                    </span>
+                    <h2>Kamera belum bisa dipakai</h2>
+                    <p>{errorMessage}</p>
+                    <div className="status-actions">
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        onClick={retry}
+                      >
+                        Coba lagi
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {status === "running" && (
+                <CountdownOverlay remaining={remaining} duration={duration} />
+              )}
+
+              {flashKey > 0 && (
+                <div key={flashKey} className="flash" aria-hidden="true" />
+              )}
+            </div>
+
+            <div className="stage-bottom">
+              <div
+                className={`status-chip ${statusTone}`}
+                aria-live={status === "running" ? "off" : "polite"}
+              >
+                <span className="status-dot" aria-hidden="true" />
+                {statusLabel}
+              </div>
+              <span className="stage-meta">
+                <Camera size={15} weight="bold" aria-hidden="true" />
+                1 tangan · 1–5 jari
+              </span>
+            </div>
+          </section>
+
+          <aside className="side">
+            <GestureGuide
+              count={fingerCount}
+              fingers={fingers}
+              holding={holding}
+              locked={locked}
+              holdBarRef={holdBarRef}
+            />
+            <PoseCard />
+            <p className="tip-note">
+              <LightbulbFilament size={18} weight="fill" aria-hidden="true" />
+              Cahaya dari depan, tangan di dalam kotak, jarak satu lengan.
+            </p>
+          </aside>
+        </div>
+      </main>
 
       {capturedImage && (
-        <div className="capture-preview">
-          <h2>PHOTO CAPTURED!</h2>
-
-          <img
-            src={capturedImage}
-            alt="Captured photo"
-            className="captured-photo"
-          />
-
-          <div className="capture-actions">
-            <button onClick={retakePhoto}>
-              RETAKE
-            </button>
-
-            <button onClick={savePhoto}>
-              SAVE PHOTO
-            </button>
-          </div>
-        </div>
+        <PhotoResult
+          image={capturedImage}
+          onRetake={retake}
+          onSave={savePhoto}
+        />
       )}
-    </div>
+    </>
   );
 }
