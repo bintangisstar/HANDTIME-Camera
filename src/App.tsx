@@ -3,6 +3,7 @@ import CameraView from "./components/CameraView";
 import StartScreen from "./components/StartScreen";
 import Topbar from "./components/Topbar";
 import { useSound } from "./hooks/useSound";
+import { BOOTH_TEMPLATES } from "./utils/boothTemplates";
 import "./App.css";
 
 type Screen = "start" | "booth";
@@ -17,6 +18,7 @@ function readSoundPreference() {
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("start");
+  const [templateId, setTemplateId] = useState(BOOTH_TEMPLATES[0].id);
   const [soundOn, setSoundOn] = useState(readSoundPreference);
 
   const { prime, playTick, playGo, playShutter } = useSound(soundOn);
@@ -56,9 +58,17 @@ export default function App() {
       />
 
       {screen === "start" ? (
-        <StartScreen onStart={handleStart} />
+        <StartScreen
+          onStart={handleStart}
+          templateId={templateId}
+          onTemplateChange={setTemplateId}
+        />
       ) : (
-        <CameraView sound={{ playTick, playGo, playShutter }} />
+        <CameraView
+          sound={{ playTick, playGo, playShutter }}
+          templateId={templateId}
+          onTemplateChange={setTemplateId}
+        />
       )}
     </div>
   );

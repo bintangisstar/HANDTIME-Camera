@@ -99,12 +99,12 @@ export default function PhotoResult({
         <span className="result-tape" aria-hidden="true" />
 
         <div className="polaroid">
-          <img src={image} alt="Hasil foto dari kamera, posisi cermin" />
+          <img src={image} alt="Hasil photobooth dengan beberapa foto dalam satu frame" />
         </div>
 
         <h2 className="result-title" id="result-title">
           <Sparkle size={22} weight="fill" aria-hidden="true" />
-          Jadi deh!
+          Photobooth jadi!
         </h2>
         <p className="result-caption">handtime · {dateLabel}</p>
 

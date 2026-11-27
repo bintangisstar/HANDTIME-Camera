@@ -7,26 +7,26 @@
    Radius scale: cards 26px / media 18px / buttons + chips = pill.
 ------------------------------------------------------------------- */
 :root {
-  --cream: #fff6eb;
-  --cream-deep: #ffe9d2;
-  --card: #fffdf9;
-  --ink: #241726;
-  --ink-soft: #6d5a70;
-  --line: #241726;
+  --cream: #f5f6f3;
+  --cream-deep: #e8ebe6;
+  --card: #fff;
+  --ink: #202b28;
+  --ink-soft: #53635e;
+  --line: #26332f;
 
-  --pink: #ff6b8b;
-  --pink-soft: #ffd9e1;
-  --mint: #a8e8d8;
-  --mint-deep: #2f9c86;
-  --butter: #ffd166;
-  --butter-deep: #e0a41f;
+  --pink: #f16b55;
+  --pink-soft: #f8ded7;
+  --mint: #dbece2;
+  --mint-deep: #4b7c68;
+  --butter: #f2d77b;
+  --butter-deep: #96751b;
 
-  --dot: rgba(36, 23, 38, 0.09);
-  --dash: rgba(36, 23, 38, 0.22);
-  --scrim: rgba(36, 23, 38, 0.58);
-  --hard-shadow: #241726;
-  --card-shadow: 0 18px 36px -24px rgba(36, 23, 38, 0.55);
-  --chip-shadow: 3px 3px 0 var(--line);
+  --dot: rgba(32, 43, 40, 0.055);
+  --dash: rgba(32, 43, 40, 0.2);
+  --scrim: rgba(20, 31, 28, 0.62);
+  --hard-shadow: #26332f;
+  --card-shadow: 0 14px 34px -25px rgba(32, 43, 40, 0.42);
+  --chip-shadow: 2px 2px 0 var(--line);
 
   --sans: "Nunito Variable", ui-rounded, "Segoe UI", system-ui, sans-serif;
   --display: "Baloo 2 Variable", "Nunito Variable", ui-rounded, system-ui,
@@ -46,26 +46,26 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --cream: #211726;
-    --cream-deep: #2d1f33;
-    --card: #2b1e31;
-    --ink: #fff3e6;
-    --ink-soft: #cbb4cf;
-    --line: #f4e5d7;
+    --cream: #1c2522;
+    --cream-deep: #29332f;
+    --card: #26312d;
+    --ink: #f1f5ef;
+    --ink-soft: #c1cec6;
+    --line: #dce7df;
 
-    --pink: #ff7d9c;
-    --pink-soft: #4b2635;
-    --mint: #8fe3cf;
-    --mint-deep: #7ad9c3;
-    --butter: #ffd166;
-    --butter-deep: #ffd166;
+    --pink: #fa8068;
+    --pink-soft: #54352f;
+    --mint: #315044;
+    --mint-deep: #8bc5a8;
+    --butter: #f2d77b;
+    --butter-deep: #f2d77b;
 
-    --dot: rgba(255, 243, 230, 0.1);
-    --dash: rgba(255, 243, 230, 0.22);
-    --scrim: rgba(10, 5, 12, 0.66);
-    --hard-shadow: rgba(0, 0, 0, 0.6);
-    --card-shadow: 0 18px 36px -22px rgba(0, 0, 0, 0.75);
-    --chip-shadow: 3px 3px 0 rgba(0, 0, 0, 0.55);
+    --dot: rgba(241, 245, 239, 0.06);
+    --dash: rgba(241, 245, 239, 0.22);
+    --scrim: rgba(8, 14, 12, 0.72);
+    --hard-shadow: rgba(0, 0, 0, 0.45);
+    --card-shadow: 0 16px 34px -23px rgba(0, 0, 0, 0.68);
+    --chip-shadow: 2px 2px 0 rgba(0, 0, 0, 0.42);
   }
 }
 

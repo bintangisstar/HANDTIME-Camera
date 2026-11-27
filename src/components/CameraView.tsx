@@ -6,6 +6,7 @@ import {
 } from "@mediapipe/tasks-vision";
 import {
   Camera,
+  Check,
   HandWaving,
   LightbulbFilament,
   WarningCircle,
@@ -18,6 +19,7 @@ import CountdownOverlay from "./CountdownOverlay";
 import GestureGuide from "./GestureGuide";
 import PhotoResult from "./PhotoResult";
 import PoseCard from "./PoseCard";
+import { BOOTH_TEMPLATES, composeBoothImage, getBoothTemplate } from "../utils/boothTemplates";
 
 const WASM_URL =
   "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.2.3/wasm";
@@ -32,6 +34,8 @@ const EMPTY_FINGERS: FingerState = [false, false, false, false, false];
 type CameraPhase = "loading" | "ready" | "error";
 
 type CameraViewProps = {
+  templateId: string;
+  onTemplateChange: (templateId: string) => void;
   sound: {
     playTick: () => void;
     playGo: () => void;
@@ -62,7 +66,7 @@ function drawLandmarks(
   }
 }
 
-export default function CameraView({ sound }: CameraViewProps) {
+export default function CameraView({ sound, templateId, onTemplateChange }: CameraViewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const landmarkerRef = useRef<HandLandmarker | null>(null);
@@ -79,6 +83,7 @@ export default function CameraView({ sound }: CameraViewProps) {
   const [fingers, setFingers] = useState<FingerState>(EMPTY_FINGERS);
   const [holding, setHolding] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [shots, setShots] = useState<string[]>([]);
   const [flashKey, setFlashKey] = useState(0);
 
   const { status, duration, remaining, startTimer, resetTimer } =
@@ -91,6 +96,13 @@ export default function CameraView({ sound }: CameraViewProps) {
   const triggeredRef = useRef(false);
   const historyRef = useRef<number[]>([]);
   const lastTsRef = useRef(0);
+  const shotsRef = useRef<string[]>([]);
+  const template = getBoothTemplate(templateId);
+  const templateRef = useRef(template);
+
+  useEffect(() => {
+    templateRef.current = template;
+  }, [template]);
 
   useEffect(() => {
     statusRef.current = status;
@@ -111,6 +123,8 @@ export default function CameraView({ sound }: CameraViewProps) {
     historyRef.current = [];
 
     setCapturedImage(null);
+    shotsRef.current = [];
+    setShots([]);
     setFingerCount(0);
     setFingers(EMPTY_FINGERS);
     setHolding(false);
@@ -119,6 +133,22 @@ export default function CameraView({ sound }: CameraViewProps) {
     if (holdBarRef.current) {
       holdBarRef.current.style.transform = "scaleX(0)";
     }
+  }, [resetTimer]);
+
+  const retakeLast = useCallback(() => {
+    const nextShots = shotsRef.current.slice(0, -1);
+    shotsRef.current = nextShots;
+    setShots(nextShots);
+    setCapturedImage(null);
+    capturedRef.current = false;
+    statusRef.current = "idle";
+    candidateRef.current = 0;
+    triggeredRef.current = false;
+    holdStartRef.current = performance.now();
+    historyRef.current = [];
+    setHolding(false);
+    resetTimer();
+    if (holdBarRef.current) holdBarRef.current.style.transform = "scaleX(0)";
   }, [resetTimer]);
 
   const cancelCountdown = useCallback(() => {
@@ -220,9 +250,37 @@ export default function CameraView({ sound }: CameraViewProps) {
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
       capturedRef.current = true;
-      setCapturedImage(canvas.toDataURL("image/jpeg", 0.92));
+      const photo = canvas.toDataURL("image/jpeg", 0.92);
+      const nextShots = [...shotsRef.current, photo];
+      shotsRef.current = nextShots;
+      setShots(nextShots);
       setFlashKey((key) => key + 1);
       playShutter();
+
+       if (nextShots.length === templateRef.current.slots.length) {
+        void composeBoothImage(templateRef.current.id, nextShots)
+          .then(setCapturedImage)
+          .catch((error: unknown) => {
+            console.error("HANDTIME template composition error:", error);
+            setErrorMessage("Frame gagal dirangkai. Foto terakhir tetap bisa disimpan.");
+            setCapturedImage(photo);
+          });
+        return;
+      }
+
+      statusRef.current = "idle";
+      resetTimer();
+      candidateRef.current = 0;
+      triggeredRef.current = false;
+      holdStartRef.current = performance.now();
+      historyRef.current = [];
+      setFingerCount(0);
+      setFingers(EMPTY_FINGERS);
+      setHolding(false);
+      if (holdBarRef.current) holdBarRef.current.style.transform = "scaleX(0)";
+      window.setTimeout(() => {
+        capturedRef.current = false;
+      }, 750);
     };
 
     async function boot() {
@@ -435,7 +493,19 @@ export default function CameraView({ sound }: CameraViewProps) {
       landmarkerRef.current?.close();
       landmarkerRef.current = null;
     };
-  }, [retryKey, playGo, startTimer, playShutter]);
+  }, [retryKey, playGo, startTimer, playShutter, resetTimer]);
+
+  const changeTemplate = useCallback((nextTemplateId: string) => {
+    if (nextTemplateId === templateId) return;
+    if (
+      shotsRef.current.length > 0 &&
+      !window.confirm("Mengganti frame akan menghapus foto yang sudah diambil. Lanjutkan?")
+    ) {
+      return;
+    }
+    if (shotsRef.current.length > 0) retake();
+    onTemplateChange(nextTemplateId);
+  }, [onTemplateChange, retake, templateId]);
 
   const locked =
     phase !== "ready" || status === "running" || capturedImage !== null;
@@ -459,7 +529,9 @@ export default function CameraView({ sound }: CameraViewProps) {
         : status === "running"
           ? `Hitung mundur ${remaining}…`
           : capturedImage
-            ? "Foto siap!"
+            ? "Photostrip siap!"
+            : shots.length > 0
+              ? `Foto ${shots.length + 1} dari ${template.slots.length} · tunjukkan jari`
             : fingerCount > 0
               ? holding
                 ? `Tahan… ${fingerCount} jari`
@@ -570,12 +642,47 @@ export default function CameraView({ sound }: CameraViewProps) {
               </div>
               <span className="stage-meta">
                 <Camera size={15} weight="bold" aria-hidden="true" />
-                1 tangan · 1–5 jari
+                {shots.length}/{template.slots.length} foto · 1–5 jari
               </span>
             </div>
           </section>
 
           <aside className="side">
+            <section className="panel session-card" aria-label="Progres foto">
+              <div className="panel-head">
+                <h2 className="panel-title">Photobooth</h2>
+                <span className="live-badge">{shots.length}/{template.slots.length}</span>
+              </div>
+              <p className="session-template-name">{template.name}</p>
+              <div className="session-template-picker" role="group" aria-label="Pilih frame untuk sesi potret">
+                {BOOTH_TEMPLATES.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className={`session-template-option${templateId === option.id ? " is-selected" : ""}`}
+                    onClick={() => changeTemplate(option.id)}
+                    aria-pressed={templateId === option.id}
+                    aria-label={`${option.name}, ${option.slots.length} foto`}
+                    title={`${option.name} · ${option.slots.length} foto`}
+                  >
+                    <img src={option.image} alt="" />
+                    {templateId === option.id && <span className="session-template-check"><Check size={12} weight="bold" /></span>}
+                  </button>
+                ))}
+              </div>
+              <div className="session-slots" aria-label={`${shots.length} dari ${template.slots.length} foto terisi`}>
+                {template.slots.map((_, index) => (
+                  <span className={`session-slot${shots[index] ? " is-filled" : ""}`} key={index}>
+                    {shots[index] ? <img src={shots[index]} alt={`Foto ${index + 1}`} /> : index + 1}
+                  </span>
+                ))}
+              </div>
+              {shots.length > 0 && (
+                <button type="button" className="chip-btn session-retake" onClick={retakeLast}>
+                  Ulangi foto terakhir
+                </button>
+              )}
+            </section>
             <GestureGuide
               count={fingerCount}
               fingers={fingers}

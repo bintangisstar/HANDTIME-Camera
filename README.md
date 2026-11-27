@@ -1,7 +1,7 @@
 # ✋ HANDTIME Camera
 
-Photo booth kecil di browser. Tunjukkan **1–5 jari** ke kamera, tahan sebentar,
-dan HANDTIME akan hitung mundur sesuai jumlah jari lalu memotret otomatis.
+Photo booth kecil di browser. Pilih template **3–4 foto**, lalu tunjukkan
+**1–5 jari** dan tahan untuk memicu hitung mundur serta jepretan otomatis.
 
 Dibangun dengan **React 19 + TypeScript + Vite 8 + MediaPipe Tasks Vision**.
 Tampilan baru memakai gaya sticker/photobooth: krem hangat, outline tebal,
@@ -15,7 +15,7 @@ aksen pink–mint–butter, plus dukungan mode gelap.
 | ⏱️ **Hold 0,6 detik** | Progress bar menunjukkan kapan timer akan mulai |
 | ⏳ **Hitung mundur** | Ring + angka besar, bunyi tik, dan label “Senyum!” di detik terakhir |
 | 📸 **Foto otomatis** | Flash + suara shutter, hasil dicerminkan seperti preview |
-| 🖼️ **Polaroid result** | Pratinjau ala polaroid, tombol **Foto ulang** dan **Simpan foto** (JPEG) |
+| 🎞️ **Template photobooth** | Pilih template 3–4 frame, isi satu per satu dengan gesture, lalu simpan sebagai satu gambar (JPEG) |
 | 🎲 **Ide pose** | Saran pose acak supaya sesi foto nggak kaku |
 | 🔊 **Suara opsional** | Tik, chime, dan shutter dari WebAudio; preferensi disimpan |
 | 🧯 **Error state jelas** | Izin kamera ditolak, kamera dipakai aplikasi lain, atau model gagal dimuat |
@@ -32,15 +32,15 @@ npm run dev
 
 Buka `http://localhost:5173`, izinkan akses kamera, lalu angkat jari.
 
-## 📦 Build satu file mandiri
+## 📦 Build untuk hosting statis
 
 ```bash
 npm run build
 ```
 
-Hasilnya **satu file**: `dist/index.html` (JavaScript, CSS, dan font di-inline
-lewat `vite-plugin-singlefile`). File itu bisa dibuka langsung atau di-upload
-ke hosting statis tanpa folder `assets`.
+Hasil build ada di `dist/`. JavaScript, CSS, dan font di-inline ke
+`dist/index.html`; folder `dist/templates/` juga harus ikut di-upload karena
+berisi gambar frame photobooth.
 
 ## 📝 Catatan
 
@@ -60,7 +60,7 @@ src/
 │   ├── CameraView.tsx       # kamera, deteksi, timer, capture
 │   ├── CountdownOverlay.tsx # ring + angka hitung mundur
 │   ├── GestureGuide.tsx     # jumlah jari live + progress hold
-│   ├── PhotoResult.tsx      # dialog polaroid + confetti
+│   ├── PhotoResult.tsx      # hasil photostrip + confetti
 │   ├── PoseCard.tsx         # ide pose acak
 │   ├── StartScreen.tsx      # hero + cara pakai
 │   └── Topbar.tsx           # brand + toggle suara
@@ -68,6 +68,7 @@ src/
 │   ├── useGestureTimer.ts   # countdown berbasis wall-clock
 │   └── useSound.ts          # WebAudio (tik, chime, shutter)
 ├── utils/fingerCounter.ts   # hitung jari + smoothing
+├── utils/boothTemplates.ts  # template, slot foto, dan komposisi hasil
 ├── App.tsx                  # layar start ↔ booth
 ├── App.css                  # seluruh style UI
 ├── index.css                # token warna, font, reset
