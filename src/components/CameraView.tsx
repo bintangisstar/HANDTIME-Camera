@@ -121,6 +121,19 @@ export default function CameraView({ sound }: CameraViewProps) {
     }
   }, [resetTimer]);
 
+  const cancelCountdown = useCallback(() => {
+    statusRef.current = "idle";
+    triggeredRef.current = false;
+    candidateRef.current = 0;
+    holdStartRef.current = performance.now();
+    setHolding(false);
+    resetTimer();
+
+    if (holdBarRef.current) {
+      holdBarRef.current.style.transform = "scaleX(0)";
+    }
+  }, [resetTimer]);
+
   const savePhoto = useCallback(() => {
     if (!capturedImage) return;
 
@@ -535,7 +548,11 @@ export default function CameraView({ sound }: CameraViewProps) {
               )}
 
               {status === "running" && (
-                <CountdownOverlay remaining={remaining} duration={duration} />
+                <CountdownOverlay
+                  remaining={remaining}
+                  duration={duration}
+                  onCancel={cancelCountdown}
+                />
               )}
 
               {flashKey > 0 && (

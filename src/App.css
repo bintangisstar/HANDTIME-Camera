@@ -815,6 +815,32 @@ button.brand {
   animation: label-pop 0.55s ease-in-out infinite alternate;
 }
 
+.countdown-cancel {
+  pointer-events: auto;
+  margin-top: 2px;
+  padding: 9px 20px;
+  border: 2px solid #fff6eb;
+  border-radius: 999px;
+  background: rgba(36, 23, 38, 0.82);
+  color: #fff6eb;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    transform 0.14s ease,
+    background-color 0.14s ease;
+}
+
+.countdown-cancel:hover {
+  transform: translateY(-2px);
+  background: #241726;
+}
+
+.countdown-cancel:active {
+  transform: scale(0.97);
+}
+
 .flash {
   position: absolute;
   inset: 0;
